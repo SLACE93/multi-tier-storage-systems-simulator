@@ -1,7 +1,7 @@
 from replacementPolicy import LRUCache
 
 class Ram:
-    def __init__(self, capacity=100, block_size=128):
+    def __init__(self, capacity=10, block_size=4):
         self.capacity = capacity
         self.block_size = block_size
         self.data_cache = LRUCache(capacity)
