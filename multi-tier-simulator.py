@@ -6,20 +6,26 @@ def start_environment():
     env = simpy.Environment()
     concurrent_access_hdd = simpy.Resource(env, capacity=settings.NUMBER_HDD)
     concurrent_access_ssd = simpy.Resource(env, capacity=settings.NUMBER_SSD)
-    trace = Trace.Trace(env, concurrent_access_hdd, concurrent_access_ssd, settings.TIMESTAMP_UNIT, settings.SIZE_FILE_UNIT,
-                        settings.READ_DATA_TRANSFER_RATE_HDD, settings.READ_DATA_TRANSFER_RATE_SSD, settings.TRANSFER_RATE_UNIT,
-                        settings.REPLACEMENT_POLICY, settings.SSD_CAPACITY, settings.RAM_CAPACITY)
-    env.process(trace.source_trace(settings.DELIMITER, settings.COLUMN_ID, settings.COLUMN_TIMESTAMP, settings.COLUMN_SIZE_FILE))
+    trace = Trace.Trace(env, concurrent_access_hdd, concurrent_access_ssd)
+    env.process(trace.source_trace(settings.DELIMITER, settings.COLUMN_ID, settings.COLUMN_TIMESTAMP, settings.COLUMN_SIZE_FILE,
+                                   settings.COLUMN_TYPE_REQUEST))
     env.run()
-    avg_served_time_HDD = Trace.HDD_SERVED_TIME / float(Trace.READS_HDD)
-    avg_served_time_HDD = round(avg_served_time_HDD, 5)
-    avg_served_time_SSD = Trace.SSD_SERVED_TIME / float(Trace.READS_SSD)
-    avg_served_time_SSD = round(avg_served_time_SSD, 5)
-    summary = 'Numbers of Reads in RAM  ' + str(Trace.READS_RAM) + '\n' + 'Numbers of Reads in HDD  ' + str(Trace.READS_HDD) + '\n'
-    summary = summary + 'Numbers of Reads in SSD  ' + str(Trace.READS_SSD) + '\n' + 'Total Served Time in HDD   ' + str(Trace.HDD_SERVED_TIME) + ' [ms]' + '\n'
-    summary = summary + 'Total Served Time in SSD   ' + str(Trace.SSD_SERVED_TIME) + ' [ms]' + '\n'
-    summary = summary + 'Average Served Time in HDD   ' + str(avg_served_time_HDD) + ' [ms]' + '\n'
-    summary = summary + 'Average Served Time in SSD   ' + str(avg_served_time_SSD) + ' [ms]'
+    avg_served_time_HDD = 0
+    avg_served_time_SSD = 0
+    if Trace.READS_HDD > 0:
+        avg_served_time_HDD = Trace.HDD_SERVED_TIME / float(Trace.READS_HDD + Trace.WRITES_HDD)
+        avg_served_time_HDD = round(avg_served_time_HDD, 5)
+    if Trace.READS_SSD > 0:
+        avg_served_time_SSD = Trace.SSD_SERVED_TIME / float(Trace.READS_SSD + Trace.WRITES_HDD)
+        avg_served_time_SSD = round(avg_served_time_SSD, 5)
+    summary = 'Total of devices in HDD tier   ' + str(settings.NUMBER_HDD) + '\n'
+    summary = summary + 'Total of devices in SSD tier  ' + str(settings.NUMBER_SSD) + '\n'
+    summary = summary + 'Numbers of Reads in RAM  ' + str(Trace.READS_RAM) + '\n' + 'Numbers of Reads in HDDs tier  ' + str(Trace.READS_HDD) + '\n'
+    summary = summary + 'Numbers of Reads in SSDs tier  ' + str(Trace.READS_SSD) + '\n' + 'Number of Writes in HDDs tier  ' + str(Trace.WRITES_HDD) + '\n'
+    summary = summary + 'Numbers of Writes in SSDs tier  ' + str(Trace.WRITES_SSD) + '\n' + 'Total Served Time in HDDs tier   ' + str(Trace.HDD_SERVED_TIME) + ' [ms]' + '\n'
+    summary = summary + 'Total Served Time in SSDs tier   ' + str(Trace.SSD_SERVED_TIME) + ' [ms]' + '\n'
+    summary = summary + 'Average Served Time in HDDs tier   ' + str(avg_served_time_HDD) + ' [ms]' + '\n'
+    summary = summary + 'Average Served Time in SSDs tier   ' + str(avg_served_time_SSD) + ' [ms]'
     # print summary
     with open('summary_reads.txt', 'w') as f:
         f.write(summary)

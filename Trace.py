@@ -2,9 +2,12 @@ import sys
 from datetime import datetime
 from storageDevice import SolidStateDrive
 from storageDevice import Ram
+import settings
 
 READS_SSD = 0
 READS_HDD = 0
+WRITES_SSD = 0
+WRITES_HDD = 0
 READS_RAM = 0
 HDD_SERVED_TIME = 0
 SSD_SERVED_TIME = 0
@@ -13,21 +16,26 @@ TRANSFER_RATE_SSD = 250     # units in MB/s
 
 class Trace:
 
-    def __init__(self, env, resource_hdd, resource_ssd, timestamp_unit, size_file_unit, transfer_rate_hdd,
-                 transfer_rate_ssd, transfer_rate_unit, replacement_policy, ssd_capacity, ram_capacity):
+    def __init__(self, env, resource_hdd, resource_ssd):
         self.env = env
         self.concurrent_access_hdd = resource_hdd
         self.concurrent_access_ssd = resource_ssd
-        self.transferRateHDD = transfer_rate_hdd
-        self.transferRateSSD = transfer_rate_ssd
-        self.size_file_default = 128    # 128 MB size file by default
+        self.read_transferRateHDD = settings.READ_DATA_TRANSFER_RATE_HDD
+        self.write_transferRateHDD = settings.WRITE_DATA_TRANSFER_RATE_HDD
+        self.read_transferRateSSD = settings.READ_DATA_TRANSFER_RATE_SSD
+        self.write_transferRateSSD = settings.WRITE_DATA_TRANSFER_RATE_SSD
+        self.size_file_default = settings.DEFAULT_SIZE_FILE    # 128 MB size file by default
         self.solidStateDrive = None
         self.ram = None
         self.timestamp_unit_ms_factor = 1  # Factor for working timestamp in millisecond unit
         self.size_file_unit_mb_factor = 1  # Factor for working in Megabyte file size unit
         self.transfer_rate_unit_mbs_factor = 1  # Factor for working in transfer rate in Megabyte per seconds
         self.transfer_rate_ms_factor = 1000     # Factor for working file transfer rate duration in milliseconds
-        self.replacement_policy = replacement_policy.lower()
+        self.replacement_policy = settings.REPLACEMENT_POLICY.lower()
+        timestamp_unit = settings.TIMESTAMP_UNIT
+        size_file_unit = settings.SIZE_FILE_UNIT
+        ssd_capacity = settings.SSD_CAPACITY
+        ram_capacity = settings.RAM_CAPACITY
         # Set the factor to convert timestamp unit to timestamp unit in Milliseconds
         if timestamp_unit == 's':
             self.timestamp_unit_ms_factor = 1000
@@ -57,7 +65,7 @@ class Trace:
         # self.transferRateSSD = int(self.transferRateSSD * self.transfer_rate_unit_mbs_factor)
         # self.transferRateHDD = int(self.transferRateHDD * self.transfer_rate_unit_mbs_factor)
 
-    def source_trace(self, delimeter, column_id, column_timestamp, column_size):
+    def source_trace(self, delimeter, column_id, column_timestamp, column_size, column_type_operation):
         prevTime = 0
         i = 0
         size_file = 0
@@ -80,47 +88,97 @@ class Trace:
                 size_file = self.size_file_default
             else:
                 size_file = int(campos[column_size]) * self.size_file_unit_mb_factor
+            if column_type_operation == '-':
+                type_operation = 'Read'
+            else:
+                type_operation = campos[column_type_operation]
             if self.replacement_policy == 'lru':
-                self.env.process(self.transfer_with_lru(file_id, size_file))
+                self.env.process(self.transfer_with_lru(file_id, size_file, type_operation))
             elif self.replacement_policy == 'fb':
-                self.env.process(self.transfer_with_fb(file_id, size_file, campos[-1]))
+                self.env.process(self.transfer_with_fb(file_id, size_file, type_operation, campos[-1]))
             elif self.replacement_policy == 'hash':
-                self.env.process(self.transfer_with_hash(file_id, size_file))
+                self.env.process(self.transfer_with_hash(file_id, size_file, type_operation))
 
-    def transfer_with_hash(self, file_id, size_file):
+    def transfer_with_hash(self, file_id, size_file, type_operation):
         locationSelected = ''
-        print ('Trace %s arriving at %d [ms]' % (file_id, self.env.now))
+        # print ('Trace %s arriving at %d [ms]' % (file_id, self.env.now))
         capeSelected = self.getCapeSelected(file_id)
+        type_operation = type_operation.lower()
+        if type_operation == 'read':
+            transferRateSSD = self.read_transferRateSSD
+            transferRateHDD = self.read_transferRateHDD
+            if capeSelected == 1:
+                global READS_SSD
+                READS_SSD += 1
+            else:
+                global READS_HDD
+                READS_HDD += 1
+        else:
+            transferRateSSD = self.write_transferRateSSD
+            transferRateHDD = self.write_transferRateHDD
+            if capeSelected == 1:
+                global WRITES_SSD
+                WRITES_SSD += 1
+            else:
+                global WRITES_HDD
+                WRITES_HDD += 1
+
         if capeSelected == 1:
-            global READS_SSD
-            READS_SSD += 1
-            transferDuration = int((size_file / float(self.transferRateSSD)) * self.transfer_rate_ms_factor)
+            transferDuration = int((size_file / float(transferRateSSD)) * self.transfer_rate_ms_factor)
             locationSelected = 'SSD'
             with self.concurrent_access_ssd.request() as req:
+                arrived_time = self.env.now
                 yield req
                 yield self.env.timeout(transferDuration)
+                returned_time = self.env.now
+                served_time = returned_time - arrived_time
+                global SSD_SERVED_TIME
+                SSD_SERVED_TIME = SSD_SERVED_TIME + served_time
+                print str(file_id) + ',' + str(arrived_time) + ',' + str(returned_time) + ',' + str(served_time) + ',' + locationSelected
         else:
-            global READS_HDD
-            READS_HDD += 1
-            transferDuration = int((size_file / float(self.transferRateHDD)) * self.transfer_rate_ms_factor)
+            transferDuration = int((size_file / float(transferRateHDD)) * self.transfer_rate_ms_factor)
             locationSelected = 'HDD'
             with self.concurrent_access_hdd.request() as req:
+                arrived_time = self.env.now
                 yield req
                 yield self.env.timeout(transferDuration)
-        print ('Finished moving trace %s in %s at %d [ms]' % (file_id, locationSelected,  self.env.now))
+                returned_time = self.env.now
+                served_time = returned_time - arrived_time
+                global HDD_SERVED_TIME
+                HDD_SERVED_TIME = HDD_SERVED_TIME + served_time
+                print str(file_id) + ',' + str(arrived_time) + ',' + str(returned_time) + ',' + str(served_time) + ',' + locationSelected
+        # print ('Finished moving trace %s in %s at %d [ms]' % (file_id, locationSelected,  self.env.now))
 
     def getCapeSelected(self, id):
         value = hash(id)
         return value & 1
 
-    def transfer_with_lru(self, file_id, size_file):
+    def transfer_with_lru(self, file_id, size_file, type_operation):
         locationSelected = ''
         # print ('Trace %s arriving at %d [ms]' % (file_id, self.env.now))
         value = self.solidStateDrive.get_data(file_id)
+        type_operation = type_operation.lower()
+        if type_operation == 'read':
+            transferRateSSD = self.read_transferRateSSD
+            transferRateHDD = self.read_transferRateHDD
+            if value == -1:
+                global READS_HDD
+                READS_HDD += 1
+            else:
+                global READS_SSD
+                READS_SSD += 1
+        else:
+            transferRateSSD = self.write_transferRateSSD
+            transferRateHDD = self.write_transferRateHDD
+            if value == -1:
+                global WRITES_HDD
+                WRITES_HDD += 1
+            else:
+                global WRITES_SSD
+                WRITES_SSD += 1
+
         if value == -1: # The file_id is not in Solid State Drive
-            global READS_HDD
-            READS_HDD += 1
-            transferDuration = int((size_file / float(self.transferRateHDD)) * self.transfer_rate_ms_factor)
+            transferDuration = int((size_file / float(transferRateHDD)) * self.transfer_rate_ms_factor)
             locationSelected = 'HDD'
             with self.concurrent_access_hdd.request() as req_hdd:
                 arrived_time = self.env.now
@@ -129,14 +187,13 @@ class Trace:
                 yield self.env.timeout(transferDuration)
                 returned_time = self.env.now
                 served_time = returned_time - arrived_time
+                global HDD_SERVED_TIME
+                HDD_SERVED_TIME = HDD_SERVED_TIME + served_time
                 print str(file_id) + ',' + str(arrived_time) + ',' + str(returned_time) + ',' + str(served_time) + ',' + locationSelected
                 # print ('Finished moving trace %s in %s at %d [ms]' % (file_id, locationSelected,  returned_time))
             self.solidStateDrive.set_data(file_id, 5)
-        else:
-            # else frequency > 1  hay que mover a solid state drive el file id
-            global READS_SSD
-            READS_SSD += 1
-            transferDuration = int((size_file / float(self.transferRateSSD)) * self.transfer_rate_ms_factor)
+        else: # else we need to move to solid state drive the file id
+            transferDuration = int((size_file / float(transferRateSSD)) * self.transfer_rate_ms_factor)
             locationSelected = 'SSD'
             with self.concurrent_access_ssd.request() as req_ssd:
                 arrived_time = self.env.now
@@ -144,12 +201,14 @@ class Trace:
                 # print ('Trace ssd %s arriving at %d [ms]' % (file_id, arrived_time))
                 yield self.env.timeout(transferDuration)
                 returned_time = self.env.now
-                served_time =  returned_time - arrived_time
+                served_time = returned_time - arrived_time
+                global SSD_SERVED_TIME
+                SSD_SERVED_TIME = SSD_SERVED_TIME + served_time
                 print str(file_id) + ',' + str(arrived_time) + ',' + str(returned_time) + ',' + str(served_time) + ',' + locationSelected
                 # print ('Finished moving trace %s in %s at %d [ms]' % (file_id, locationSelected,  returned_time))
         # print ('Finished moving trace %s in %s at %d [ms]' % (file_id, locationSelected,  self.env.now))
 
-    def transfer_with_fb(self, file_id, size_file, zone):
+    def transfer_with_fb(self, file_id, size_file, type_operation, zone):
         locationSelected = ''
         # print ('Trace %s arriving at %d [ms]' % (file_id, self.env.now))
         value = self.ram.get_data(file_id)
@@ -161,10 +220,28 @@ class Trace:
             yield self.env.timeout(transferDuration)
             # print ('Finished reading trace %s in %s at %d [ms]' % (file_id, locationSelected,  self.env.now))
         else:
+            type_operation = type_operation.lower()
+            if type_operation == 'read':
+                transferRateSSD = self.read_transferRateSSD
+                transferRateHDD = self.read_transferRateHDD
+                if zone == 'hot':
+                    global READS_SSD
+                    READS_SSD += 1
+                else:
+                    global READS_HDD
+                    READS_HDD += 1
+            else:
+                transferRateSSD = self.write_transferRateSSD
+                transferRateHDD = self.write_transferRateHDD
+                if zone == 'hot':
+                    global WRITES_SSD
+                    WRITES_SSD += 1
+                else:
+                    global WRITES_HDD
+                    WRITES_HDD += 1
+
             if zone == 'hot':
-                global READS_SSD
-                READS_SSD += 1
-                transferDuration = int((size_file / float(self.transferRateSSD)) * self.transfer_rate_ms_factor)
+                transferDuration = int((size_file / float(transferRateSSD)) * self.transfer_rate_ms_factor)
                 locationSelected = 'SSD'
                 with self.concurrent_access_ssd.request() as req_ssd:
                     arrived_time = self.env.now
@@ -178,9 +255,7 @@ class Trace:
                     print str(file_id) + ',' + str(arrived_time) + ',' + str(returned_time) + ',' + str(served_time) + ',' + locationSelected
                     # print ('Finished moving trace %s in %s at %d [ms]' % (file_id, locationSelected,  returned_time))
             else:
-                global READS_HDD
-                READS_HDD += 1
-                transferDuration = int((size_file / float(self.transferRateHDD)) * self.transfer_rate_ms_factor)
+                transferDuration = int((size_file / float(transferRateHDD)) * self.transfer_rate_ms_factor)
                 locationSelected = 'HDD'
                 with self.concurrent_access_hdd.request() as req_hdd:
                     arrived_time = self.env.now
