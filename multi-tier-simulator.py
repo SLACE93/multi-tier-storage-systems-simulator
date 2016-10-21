@@ -12,22 +12,31 @@ def start_environment():
     env.run()
     avg_served_time_HDD = 0
     avg_served_time_SSD = 0
+    nanosecond_to_milisecond = 1 / float(1000 * 1000)
     if Trace.READS_HDD > 0:
         avg_served_time_HDD = Trace.HDD_SERVED_TIME / float(Trace.READS_HDD + Trace.WRITES_HDD)
+        # avg_served_time_HDD = avg_served_time_HDD * nanosecond_to_milisecond
         avg_served_time_HDD = round(avg_served_time_HDD, 5)
     if Trace.READS_SSD > 0:
         avg_served_time_SSD = Trace.SSD_SERVED_TIME / float(Trace.READS_SSD + Trace.WRITES_HDD)
+        # avg_served_time_SSD = avg_served_time_SSD * nanosecond_to_milisecond
         avg_served_time_SSD = round(avg_served_time_SSD, 5)
-    summary = 'Total of devices in HDD tier   ' + str(settings.NUMBER_HDD) + '\n'
-    summary = summary + 'Total of devices in SSD tier  ' + str(settings.NUMBER_SSD) + '\n'
-    summary = summary + 'Numbers of Reads in RAM  ' + str(Trace.READS_RAM) + '\n' + 'Numbers of Reads in HDDs tier  ' + str(Trace.READS_HDD) + '\n'
-    summary = summary + 'Numbers of Reads in SSDs tier  ' + str(Trace.READS_SSD) + '\n' + 'Number of Writes in HDDs tier  ' + str(Trace.WRITES_HDD) + '\n'
-    summary = summary + 'Numbers of Writes in SSDs tier  ' + str(Trace.WRITES_SSD) + '\n' + 'Total Served Time in HDDs tier   ' + str(Trace.HDD_SERVED_TIME) + ' [ms]' + '\n'
-    summary = summary + 'Total Served Time in SSDs tier   ' + str(Trace.SSD_SERVED_TIME) + ' [ms]' + '\n'
-    summary = summary + 'Average Served Time in HDDs tier   ' + str(avg_served_time_HDD) + ' [ms]' + '\n'
-    summary = summary + 'Average Served Time in SSDs tier   ' + str(avg_served_time_SSD) + ' [ms]'
+    # total_served_time_SSD = round((Trace.SSD_SERVED_TIME * nanosecond_to_milisecond), 5)
+    # total_served_time_HDD = round((Trace.HDD_SERVED_TIME * nanosecond_to_milisecond), 5)
+    total_served_time_HDD = Trace.HDD_SERVED_TIME
+    total_served_time_SSD = Trace.SSD_SERVED_TIME
+    total_operations = Trace.READS_RAM + Trace.READS_HDD + Trace.READS_SSD + Trace.WRITES_HDD + Trace.WRITES_SSD
+    summary = "Total of operations at file's traces:  " + str(total_operations) + '\n'
+    summary = summary + 'Total of devices in HDD tier:       ' + str(settings.NUMBER_HDD) + '\n'
+    summary = summary + 'Total of devices in SSD tier:       ' + str(settings.NUMBER_SSD) + '\n'
+    summary = summary + 'Numbers of Reads in RAM:            ' + str(Trace.READS_RAM) + '\n' + 'Numbers of Reads in HDDs tier:      ' + str(Trace.READS_HDD) + '\n'
+    summary = summary + 'Numbers of Reads in SSDs tier:      ' + str(Trace.READS_SSD) + '\n' + 'Number of Writes in HDDs tier:      ' + str(Trace.WRITES_HDD) + '\n'
+    summary = summary + 'Numbers of Writes in SSDs tier:     ' + str(Trace.WRITES_SSD) + '\n' + 'Total Served Time in HDDs tier:     ' + str(total_served_time_HDD) + ' [ms]' + '\n'
+    summary = summary + 'Total Served Time in SSDs tier:     ' + str(total_served_time_SSD) + ' [ms]' + '\n'
+    summary = summary + 'Average Served Time in HDDs tier:   ' + str(avg_served_time_HDD) + ' [ms]' + '\n'
+    summary = summary + 'Average Served Time in SSDs tier:   ' + str(avg_served_time_SSD) + ' [ms]'
     # print summary
-    with open('summary_reads.txt', 'w') as f:
+    with open('summary.txt', 'w') as f:
         f.write(summary)
 
     # print("Located number in RAM %s" %(Trace.READS_RAM))
